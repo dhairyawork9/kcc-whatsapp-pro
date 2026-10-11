@@ -67,7 +67,6 @@ app.post('/webhook', async (req, res) => {
       console.log(`[Bot Activated] "start" received from +${from}`);
       await metaService.sendLanguageSelector(from);
     } else {
-      // Completely silent: ignore all normal chatter
       console.log(`[Passthrough] Ignored message from +${from}: "${message.text.body}"`);
     }
     return;
@@ -95,7 +94,12 @@ app.post('/webhook', async (req, res) => {
       await metaService.sendCentreInfo(from, session.lang);
     } 
     // --- SHOP HANDLERS START ---
-    else if (actionId === 'nav_shop' || actionId === 'btn_shop' || actionId === 'menu_shop') {
+    else if (
+      actionId === 'nav_shop' ||
+      actionId === 'nav_shop_menu' ||
+      actionId === 'btn_shop' ||
+      actionId === 'menu_shop'
+    ) {
       const items = await getShopItems();
 
       if (!items || items.length === 0) {
@@ -106,7 +110,7 @@ app.post('/webhook', async (req, res) => {
         return;
       }
 
-      // WhatsApp list rows (maximum 10 rows per interactive list)
+      // WhatsApp list rows (max 10 rows per interactive list)
       const rows = items.slice(0, 10).map((item) => ({
         id: `shop_${item.id}`,
         title: item.title.slice(0, 24),
@@ -115,14 +119,39 @@ app.post('/webhook', async (req, res) => {
 
       const headerText = session.lang === 'gu' ? 'કૌશલ્ય સ્ટોર' : 'KCC Store';
       const bodyText = session.lang === 'gu' 
-        ? 'અમારી પાસે ઉપલબ્ધ સાધનો અને સામગ્રીની યાદી નીચે મુજબ છે. વિગતો જોવા માટે વસ્તુ પસંદ કરો:' 
-        : 'Here are the available items in our store. Select an item for details:';
+        ? 'અમારી પાસે ઉપલબ્ધ સાધનો અને સામગ્રીની યાદી નીચે મુજબ છે:' 
+        : 'Here are the available items in our store:';
       const buttonLabel = session.lang === 'gu' ? 'વસ્તુઓ જુઓ' : 'View Items';
       const sectionTitle = session.lang === 'gu' ? 'ઉપલબ્ધ વસ્તુઓ' : 'Available Items';
 
-      await metaService.sendListMessage(from, headerText, sectionTitle, bodyText, buttonLabel, [
-        { title: sectionTitle, rows }
-      ]);
+      if (typeof metaService.sendListMessage === 'function') {
+        await metaService.sendListMessage(from, headerText, sectionTitle, bodyText, buttonLabel, [
+          { title: sectionTitle, rows }
+        ]);
+      } else {
+        const payload = {
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          to: from,
+          type: "interactive",
+          interactive: {
+            type: "list",
+            header: { type: "text", text: headerText },
+            body: { text: bodyText },
+            footer: { text: "KCC Kapadvanj" },
+            action: {
+              button: buttonLabel,
+              sections: [{ title: sectionTitle, rows }]
+            }
+          }
+        };
+
+        if (typeof metaService.sendRawMessage === 'function') {
+          await metaService.sendRawMessage(payload);
+        } else if (typeof metaService.sendMessage === 'function') {
+          await metaService.sendMessage(payload);
+        }
+      }
     }
     // Individual Shop Item Clicked
     else if (actionId.startsWith('shop_item_')) {
