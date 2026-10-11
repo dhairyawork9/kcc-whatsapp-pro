@@ -1,3 +1,4 @@
+const { getShopItems } = require('./sheetCatalogService');
 const express = require('express');
 const config = require('./config/constants');
 const metaService = require('./services/metaService');
@@ -93,6 +94,50 @@ app.post('/webhook', async (req, res) => {
     } else if (actionId === 'nav_info') {
       await metaService.sendCentreInfo(from, session.lang);
     } 
+    // --- SHOP HANDLERS START ---
+    else if (actionId === 'nav_shop' || actionId === 'btn_shop' || actionId === 'menu_shop') {
+      const items = await getShopItems();
+
+      if (!items || items.length === 0) {
+        const emptyMsg = session.lang === 'gu'
+          ? 'હાલમાં સ્ટોકમાં વસ્તુઓ ઉપલબ્ધ નથી. કૃપા કરીને થોડા સમય પછી તપાસો.'
+          : 'Currently no items available in stock. Please check back later.';
+        await metaService.sendTextMessage(from, emptyMsg);
+        return;
+      }
+
+      // WhatsApp list rows (maximum 10 rows per interactive list)
+      const rows = items.slice(0, 10).map((item) => ({
+        id: `shop_${item.id}`,
+        title: item.title.slice(0, 24),
+        description: `${item.price} | ${item.category}`.slice(0, 72)
+      }));
+
+      const headerText = session.lang === 'gu' ? 'કૌશલ્ય સ્ટોર' : 'KCC Store';
+      const bodyText = session.lang === 'gu' 
+        ? 'અમારી પાસે ઉપલબ્ધ સાધનો અને સામગ્રીની યાદી નીચે મુજબ છે. વિગતો જોવા માટે વસ્તુ પસંદ કરો:' 
+        : 'Here are the available items in our store. Select an item for details:';
+      const buttonLabel = session.lang === 'gu' ? 'વસ્તુઓ જુઓ' : 'View Items';
+      const sectionTitle = session.lang === 'gu' ? 'ઉપલબ્ધ વસ્તુઓ' : 'Available Items';
+
+      await metaService.sendListMessage(from, headerText, sectionTitle, bodyText, buttonLabel, [
+        { title: sectionTitle, rows }
+      ]);
+    }
+    // Individual Shop Item Clicked
+    else if (actionId.startsWith('shop_item_')) {
+      const items = await getShopItems();
+      const rawId = actionId.replace('shop_', '');
+      const selected = items.find(i => i.id === rawId);
+
+      if (selected) {
+        const itemMsg = session.lang === 'gu'
+          ? `📦 *${selected.title}*\n\n💰 કિંમત: *${selected.price}*\n📂 કેટેગરી: ${selected.category}\n\nખરીદી અથવા વધુ માહિતી માટે સેન્ટરનો સંપર્ક કરો.`
+          : `📦 *${selected.title}*\n\n💰 Price: *${selected.price}*\n📂 Category: ${selected.category}\n\nContact the centre to purchase or inquire.`;
+        await metaService.sendTextMessage(from, itemMsg);
+      }
+    }
+    // --- SHOP HANDLERS END ---
     // Course details & inquiry
     else if (actionId.startsWith('crs_idx_')) {
       const crsIdx = parseInt(actionId.replace('crs_idx_', ''), 10);
